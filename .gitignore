@@ -1,23 +1,27 @@
-# Node.js
+# Dependencies
 node_modules/
-npm-debug.log
-yarn-error.log
-pnpm-debug.log
-.env
 
-# Android
-.gradle/
-local.properties
-.idea/
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-*.apk
-*.ap_
-output.json
+# Server uploads
+server/uploads/*
+!server/uploads/.gitkeep
 
-# Android App specific
+# Frontend build
+web-frontend-react/dist/
+
+# Android build
 android-app/app/build/
 android-app/.gradle/
+android-app/local.properties
+.gradle/
+build/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
