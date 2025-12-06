@@ -14,15 +14,15 @@ function Login({ onLogin }) {
     <div id="login-container">
       <div className="login-content">
         <div className="login-header">
-          <h1 className="login-title">Log In</h1>
+          <h1 className="login-title">登录</h1>
         </div>
         <form onSubmit={handleSubmit}>
           <div className="input-group">
-            <label htmlFor="username-input">Name</label>
+            <label htmlFor="username-input">姓名</label>
             <input
               type="text"
               id="username-input"
-              placeholder="Enter your name"
+              placeholder="请输入您的姓名"
               value={inputUsername}
               onChange={(e) => setInputUsername(e.target.value)}
               autoFocus

@@ -7,6 +7,21 @@ const multer = require("multer");
 const os = require("os");
 const PORT = process.env.PORT || 3000;
 
+// Optional MySQL persistence
+const mysql = require("mysql2/promise");
+const MYSQL_HOST =
+  process.env.MYSQL_HOST ||
+  process.env.DATABASE_HOST ||
+  "rm-2zeah3p38pm2zu3n06o.mysql.rds.aliyuncs.com";
+const MYSQL_PORT = process.env.MYSQL_PORT || 3306;
+const MYSQL_USER =
+  process.env.MYSQL_USER || process.env.DATABASE_USER || "root";
+const MYSQL_PASSWORD =
+  process.env.MYSQL_PASSWORD || process.env.DATABASE_PASSWORD || "";
+const MYSQL_DB =
+  process.env.MYSQL_DB || process.env.DATABASE_NAME || "chatroom";
+let dbPool = null;
+
 const app = express();
 const server = http.createServer(app);
 
@@ -20,6 +35,12 @@ try {
   if (fs.existsSync(MESSAGES_FILE)) {
     const data = fs.readFileSync(MESSAGES_FILE, "utf8");
     messageHistory = JSON.parse(data);
+    // Keep only real chat messages in the in-memory history to avoid
+    // serving login/logout system events as empty chat bubbles later.
+    messageHistory = messageHistory.filter((m) => {
+      const t = m.type || m.msgType || m.msg_type || "message";
+      return t === "message";
+    });
   }
 } catch (err) {
   console.error("Failed to load messages:", err);
@@ -33,6 +54,57 @@ function saveMessages() {
       if (err) console.error("Failed to save messages:", err);
     }
   );
+}
+
+async function initDb() {
+  try {
+    dbPool = mysql.createPool({
+      host: MYSQL_HOST,
+      port: MYSQL_PORT,
+      user: MYSQL_USER,
+      password: MYSQL_PASSWORD,
+      database: MYSQL_DB,
+      waitForConnections: true,
+      connectionLimit: 10,
+      queueLimit: 0,
+      charset: "utf8mb4",
+    });
+
+    // Ensure table exists
+    await dbPool.execute(`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id VARCHAR(64) NOT NULL PRIMARY KEY,
+        ts BIGINT NOT NULL,
+        username VARCHAR(191),
+        msg_type VARCHAR(32) NOT NULL,
+        file_name VARCHAR(255),
+        content TEXT NOT NULL,
+        INDEX idx_ts (ts)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // Load recent messages (most recent 200)
+    const [rows] = await dbPool.execute(
+      "SELECT id, ts, username, msg_type AS type, file_name AS fileName, content, msg_type FROM chat_messages ORDER BY ts DESC LIMIT 200"
+    );
+    // rows are newest first; reverse to oldest-first
+    messageHistory = rows.reverse().map((r) => ({
+      id: r.id,
+      ts: r.ts,
+      username: r.username,
+      type: r.msg_type || r.type || "message",
+      fileName: r.fileName,
+      content: r.content,
+      msgType: r.msg_type || "text",
+    }));
+    console.log("[Server] Loaded", messageHistory.length, "messages from DB");
+  } catch (e) {
+    console.warn(
+      "[Server] initDb failed, falling back to file storage:",
+      e.message || e
+    );
+    dbPool = null;
+  }
 }
 
 function getLocalIPv4() {
@@ -201,13 +273,37 @@ app.post("/upload", upload.single("file"), (req, res) => {
   });
 });
 
-app.get("/api/messages", (req, res) => {
+app.get("/api/messages", async (req, res) => {
   const beforeTs = parseInt(req.query.beforeTs) || Date.now();
   const limit = parseInt(req.query.limit) || 20;
 
-  // Filter messages before the timestamp and sort by timestamp desc
+  if (dbPool) {
+    try {
+      const [rows] = await dbPool.execute(
+        "SELECT id, ts, username, msg_type AS type, file_name AS fileName, content FROM chat_messages WHERE ts < ? AND msg_type = 'message' ORDER BY ts DESC LIMIT ?",
+        [beforeTs, limit]
+      );
+      const history = rows.reverse().map((r) => ({
+        id: r.id,
+        ts: r.ts,
+        username: r.username,
+        type: r.type || "message",
+        fileName: r.fileName,
+        content: r.content,
+      }));
+      return res.json(history);
+    } catch (e) {
+      console.error("[Server] /api/messages DB query failed:", e.message || e);
+      // fallthrough to in-memory fallback
+    }
+  }
+
+  // Fallback: in-memory/file cache (only real chat messages)
   const history = messageHistory
-    .filter((m) => m.ts < beforeTs)
+    .filter((m) => {
+      const t = m.type || m.msgType || m.msg_type || "message";
+      return t === "message" && m.ts < beforeTs;
+    })
     .sort((a, b) => b.ts - a.ts) // Newest first
     .slice(0, limit)
     .reverse(); // Return oldest first for the chat log
@@ -226,7 +322,7 @@ server.on("upgrade", (request, socket, head) => {
 wss.on("connection", (ws, req) => {
   console.log(`[Server] 一个客户端已连接 IP: ${req.socket.remoteAddress}`);
 
-  ws.on("message", (message) => {
+  ws.on("message", async (message) => {
     console.log("收到消息: %s", message);
 
     let parsedMessage;
@@ -237,31 +333,56 @@ wss.on("connection", (ws, req) => {
       return;
     }
 
-    if (parsedMessage.type === "message") {
-      // Add ID and timestamp
+    // Ensure ID and timestamp for all saved messages
+    if (!parsedMessage.id) {
       parsedMessage.id =
         Date.now().toString() + "-" + Math.random().toString(36).substr(2, 9);
-      parsedMessage.ts = Date.now();
+    }
+    if (!parsedMessage.ts) parsedMessage.ts = Date.now();
 
-      // Save to history
+    // If DB is available, persist only real chat messages (type === 'message')
+    if (dbPool && parsedMessage.type === "message") {
+      try {
+        const contentToStore =
+          typeof parsedMessage.content === "string"
+            ? parsedMessage.content
+            : JSON.stringify(parsedMessage.content || "");
+        await dbPool.execute(
+          "INSERT INTO chat_messages (id, ts, username, msg_type, file_name, content) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE content = VALUES(content)",
+          [
+            parsedMessage.id,
+            parsedMessage.ts,
+            parsedMessage.username || null,
+            parsedMessage.type || "message",
+            parsedMessage.fileName || null,
+            contentToStore,
+          ]
+        );
+      } catch (e) {
+        console.error(
+          "[Server] Failed to insert message into DB:",
+          e.message || e
+        );
+      }
+    }
+
+    // Keep in-memory history and file backup only for real chat messages
+    if (parsedMessage.type === "message") {
       messageHistory.push(parsedMessage);
       saveMessages();
-
-      // Broadcast the updated message with id and ts
-      const broadcastData = JSON.stringify(parsedMessage);
-      wss.clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(broadcastData);
-        }
-      });
-    } else {
-      // Broadcast original message for other types (login, etc.)
-      wss.clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(message.toString());
-        }
-      });
     }
+
+    // For login/logout include onlineCount
+    if (parsedMessage.type === "login" || parsedMessage.type === "logout") {
+      parsedMessage.onlineCount = wss.clients.size;
+    }
+
+    const broadcastData = JSON.stringify(parsedMessage);
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(broadcastData);
+      }
+    });
   });
 
   ws.on("close", () => {
@@ -269,12 +390,16 @@ wss.on("connection", (ws, req) => {
   });
 });
 
-server.listen(PORT, "0.0.0.0", () => {
-  const lanIp = getLocalIPv4();
-  console.log(`服务器正在监听端口 ${PORT}`);
-  console.log(`Local:   http://localhost:${PORT}`);
-  console.log(`Network: http://${lanIp}:${PORT}`);
-  console.log(
-    `\n注意：为了在 Android 模拟器或手机上访问，请使用 Network 地址 (http://${lanIp}:5173) 访问前端页面。`
-  );
-});
+// Initialize DB (if configured) then start server
+(async () => {
+  await initDb();
+  server.listen(PORT, "0.0.0.0", () => {
+    const lanIp = getLocalIPv4();
+    console.log(`服务器正在监听端口 ${PORT}`);
+    console.log(`Local:   http://localhost:${PORT}`);
+    console.log(`Network: http://${lanIp}:${PORT}`);
+    console.log(
+      `\n注意：为了在 Android 模拟器或手机上访问，请使用 Network 地址 (http://${lanIp}:5173) 访问前端页面。`
+    );
+  });
+})();

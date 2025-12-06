@@ -2,40 +2,57 @@ import React, { useState, useEffect, useRef } from "react";
 import MessageList from "./MessageList";
 import InputArea from "./InputArea";
 
-function Chat({ messages, username, onSendMessage, onlineCount, onLoadMore }) {
-  const messagesEndRef = useRef(null);
-  const lastMessageIdRef = useRef(null);
+function Chat({
+  messages,
+  username,
+  onSendMessage,
+  onlineCount,
+  onLoadMore,
+  onLogout,
+}) {
+  const messageListRef = useRef(null);
+  const lastMessageCountRef = useRef(0);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (messageListRef.current) {
+      setTimeout(() => {
+        messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
+      }, 0);
+    }
   };
 
   useEffect(() => {
-    if (messages.length > 0) {
+    // 只在收到新消息时滚动到底部
+    // 检查是否有新消息添加到末尾
+    if (messages.length > lastMessageCountRef.current) {
       const lastMsg = messages[messages.length - 1];
-      // Only scroll if the last message has changed (new message sent/received)
-      // or if it's the initial load (lastMessageIdRef.current is null)
-      if (lastMsg.id !== lastMessageIdRef.current) {
+      // 如果最新消息是自己发送的或系统消息，滚动到底部
+      if (
+        lastMsg.type === "system" ||
+        (lastMsg.type === "message" && lastMsg.isOwn)
+      ) {
         scrollToBottom();
-        lastMessageIdRef.current = lastMsg.id;
       }
+      lastMessageCountRef.current = messages.length;
     }
   }, [messages]);
 
   return (
     <div id="chat-container">
       <header id="chat-header">
-        <div className="back-icon">‹</div>
+        <div className="back-icon" onClick={onLogout}>
+          ‹
+        </div>
         <div className="chat-title">Chat ({onlineCount})</div>
         <div className="more-icon">•••</div>
       </header>
 
       <MessageList
+        ref={messageListRef}
         messages={messages}
         username={username}
         onLoadMore={onLoadMore}
       />
-      <div ref={messagesEndRef} />
 
       <InputArea onSendMessage={onSendMessage} />
     </div>

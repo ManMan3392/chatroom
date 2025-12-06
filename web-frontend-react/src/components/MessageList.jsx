@@ -1,34 +1,34 @@
-import React, { useState, useRef, useLayoutEffect } from "react";
+import React, { useState, useRef, useLayoutEffect, forwardRef } from "react";
+import { getFullApiServer } from "../services/api";
 
 function resolveUrl(url) {
   if (!url) return "";
-  if (/^https?:\/\//i.test(url)) return url; // Already absolute
-  if (url.startsWith("data:")) return url; // Data URI
-  if (url.startsWith("blob:")) return url; // Blob URI
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith("data:")) return url;
+  if (url.startsWith("blob:")) return url;
 
-  // Resolve relative path against the current window location
-  const protocol = window.location.protocol;
-  const hostname = window.location.hostname;
-
-  let port = window.location.port ? `:${window.location.port}` : "";
-  if (window.location.port === "5173") {
-    port = ":3000";
-  }
-
-  return `${protocol}//${hostname}${port}${url}`;
+  const apiServer = getFullApiServer();
+  return `${apiServer}${url}`;
 }
 
-function MessageList({ messages, username, onLoadMore }) {
+const MessageList = forwardRef(function MessageListComponent(
+  { messages, username, onLoadMore },
+  ref
+) {
   const listRef = useRef(null);
   const [isLoading, setIsLoading] = useState(false);
   const prevScrollHeightRef = useRef(0);
 
+  // 使用传入的 ref，如果没有则使用内部 ref
+  const scrollableRef = ref || listRef;
+
   useLayoutEffect(() => {
-    if (listRef.current && prevScrollHeightRef.current > 0) {
-      const newScrollHeight = listRef.current.scrollHeight;
+    const currentRef = scrollableRef.current || listRef.current;
+    if (currentRef && prevScrollHeightRef.current > 0) {
+      const newScrollHeight = currentRef.scrollHeight;
       const diff = newScrollHeight - prevScrollHeightRef.current;
       if (diff > 0) {
-        listRef.current.scrollTop = diff;
+        currentRef.scrollTop = diff;
       }
       prevScrollHeightRef.current = 0;
     }
@@ -40,7 +40,6 @@ function MessageList({ messages, username, onLoadMore }) {
       const firstMsg = messages.find((m) => m.type === "message");
       if (firstMsg && firstMsg.ts) {
         setIsLoading(true);
-        // Capture scroll height before loading new messages
         prevScrollHeightRef.current = scrollHeight;
 
         const count = await onLoadMore(firstMsg.ts);
@@ -55,7 +54,7 @@ function MessageList({ messages, username, onLoadMore }) {
   };
 
   return (
-    <div id="messages" ref={listRef} onScroll={handleScroll}>
+    <div id="messages" ref={scrollableRef} onScroll={handleScroll}>
       {isLoading && (
         <div style={{ textAlign: "center", padding: "10px", color: "#999" }}>
           Loading history...
@@ -110,7 +109,7 @@ function MessageList({ messages, username, onLoadMore }) {
       })}
     </div>
   );
-}
+});
 
 export default MessageList;
 

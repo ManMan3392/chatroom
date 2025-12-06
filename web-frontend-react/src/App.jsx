@@ -1,15 +1,22 @@
 import React, { useState, useEffect, useRef } from "react";
 import Login from "./components/Login";
 import Chat from "./components/Chat";
+import { get, getWebSocketUrl } from "./services/api";
 
 function App() {
   const [username, setUsername] = useState(
     localStorage.getItem("chat_username") || ""
   );
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  // isLoggedIn 现在基于 username 的存在来确定
   const [ws, setWs] = useState(null);
   const [messages, setMessages] = useState([]);
   const [onlineCount, setOnlineCount] = useState(0);
+  const [wsConnected, setWsConnected] = useState(false);
+  const reconnectTimeoutRef = useRef(null);
+  const wsRef = useRef(null);
+  const reconnectAttemptsRef = useRef(0);
+
+  const isLoggedIn = !!username;
 
   const loadHistoryMessages = async (beforeTs = null) => {
     try {
@@ -17,14 +24,7 @@ function App() {
         ? `/api/messages?beforeTs=${beforeTs}&limit=20`
         : `/api/messages?limit=20`;
 
-      let apiUrl = url;
-      // If in dev mode (port 5173), point to server port 3000
-      if (window.location.port === "5173") {
-        apiUrl = `http://${window.location.hostname}:3000${url}`;
-      }
-
-      const res = await fetch(apiUrl);
-      const data = await res.json();
+      const data = await get(url);
 
       if (data.length > 0) {
         setMessages((prev) => {
@@ -33,12 +33,13 @@ function App() {
             .filter((m) => !existingIds.has(m.id))
             .map((m) => ({
               ...m,
-              type: "message", // Ensure type is set
+              // Preserve original type from server/DB (could be 'message' or others)
+              type: m.type || m.msgType || "message",
               isOwn: m.username === username,
             }));
-          return [...newMessages, ...prev];
+          return [...prev, ...newMessages].sort((a, b) => a.ts - b.ts);
         });
-        return data.length; // Return count
+        return data.length;
       }
       return 0;
     } catch (e) {
@@ -48,100 +49,156 @@ function App() {
   };
 
   useEffect(() => {
-    let socket = null;
+    const maxReconnectAttempts = 5;
 
-    if (username) {
-      // Load initial history
-      loadHistoryMessages();
+    const connectWebSocket = () => {
+      if (!username) return;
 
-      // Dynamically determine WebSocket URL based on current page location
-      // This ensures it works on localhost, LAN IP, and Emulator (if accessing via IP)
-      const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsHost = window.location.hostname;
-
-      // In development (Vite default port 5173), backend is on 3000.
-      // In production (served by backend), use the same port as the page.
-      let wsPort = window.location.port ? `:${window.location.port}` : "";
-      if (window.location.port === "5173") {
-        wsPort = ":3000";
+      // 如果已有连接或正在连接，则不重复创建
+      if (wsRef.current) {
+        const state = wsRef.current.readyState;
+        if (state === WebSocket.OPEN || state === WebSocket.CONNECTING) {
+          return;
+        }
       }
 
-      socket = new WebSocket(`${wsProtocol}//${wsHost}${wsPort}`);
+      const wsUrl = getWebSocketUrl();
 
-      socket.onopen = () => {
-        console.log("Connected to WebSocket");
-        socket.send(
-          JSON.stringify({
-            type: "login",
-            username: username,
-          })
-        );
-        setIsLoggedIn(true);
-      };
+      try {
+        const socket = new WebSocket(wsUrl);
+        wsRef.current = socket;
 
-      socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        handleMessage(data);
-      };
+        socket.onopen = () => {
+          console.log("WebSocket connected");
+          socket.send(
+            JSON.stringify({
+              type: "login",
+              username: username,
+            })
+          );
+          setWsConnected(true);
+          reconnectAttemptsRef.current = 0; // 重置重连次数
+        };
 
-      socket.onclose = () => {
-        console.log("Disconnected");
-        setIsLoggedIn(false);
-      };
+        socket.onmessage = (event) => {
+          const data = JSON.parse(event.data);
+          handleMessage(data);
+        };
 
-      socket.onerror = (error) => {
-        console.error("WebSocket Error:", error);
-      };
+        socket.onclose = () => {
+          console.log("WebSocket closed");
+          setWsConnected(false);
+          if (wsRef.current === socket) {
+            wsRef.current = null;
+          }
 
-      setWs(socket);
+          // 自动重连（最多5次）
+          if (reconnectAttemptsRef.current < maxReconnectAttempts && username) {
+            reconnectAttemptsRef.current++;
+            const attempt = reconnectAttemptsRef.current;
+            const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+            console.log(
+              `Attempting to reconnect in ${delay}ms (attempt ${attempt}/${maxReconnectAttempts})`
+            );
+            reconnectTimeoutRef.current = setTimeout(connectWebSocket, delay);
+          }
+        };
+
+        socket.onerror = (error) => {
+          console.error("WebSocket Error:", error);
+          setWsConnected(false);
+        };
+
+        setWs(socket);
+      } catch (err) {
+        console.error("Failed to create WebSocket:", err);
+        setWsConnected(false);
+      }
+    };
+
+    // 初始化 WebSocket 和加载历史消息
+    if (username) {
+      loadHistoryMessages();
+      connectWebSocket();
     }
 
     return () => {
-      if (socket) {
-        console.log("Closing WebSocket connection");
-        socket.close();
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
       }
     };
   }, [username]);
 
-  // Removed connectWebSocket function as it's now inside useEffect
-
   const handleMessage = (data) => {
     switch (data.type) {
       case "login":
-        setMessages((prev) => [
-          ...prev,
-          { type: "system", content: `${data.username} joined the chat` },
-        ]);
+        setMessages((prev) => {
+          const content = `${data.username}进入了聊天室`;
+          // 去重：避免重复的系统消息
+          if (prev.some((m) => m.type === "system" && m.content === content)) {
+            return prev;
+          }
+          return [
+            ...prev,
+            {
+              type: "system",
+              content,
+              ts: Date.now(),
+            },
+          ];
+        });
         setOnlineCount(data.onlineCount);
         break;
       case "logout":
-        setMessages((prev) => [
-          ...prev,
-          { type: "system", content: `${data.username} left the chat` },
-        ]);
+        setMessages((prev) => {
+          const content = `${data.username}离开了聊天室`;
+          if (prev.some((m) => m.type === "system" && m.content === content)) {
+            return prev;
+          }
+          return [
+            ...prev,
+            {
+              type: "system",
+              content,
+              ts: Date.now(),
+            },
+          ];
+        });
         setOnlineCount(data.onlineCount);
         break;
       case "message":
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: data.id,
-            ts: data.ts,
-            type: "message",
-            username: data.username,
-            content: data.content,
-            msgType: data.msgType, // 'text', 'image', 'audio', 'file'
-            fileName: data.fileName, // For files
-            isOwn: data.username === username,
-          },
-        ]);
-        // Show notification on Android
+        // 过滤空消息（content 为空且没有文件名）以及重复 id
+        if (
+          (data.content === undefined ||
+            data.content === null ||
+            data.content === "") &&
+          !data.fileName
+        ) {
+          return;
+        }
+        setMessages((prev) => {
+          if (data.id && prev.some((m) => m.id === data.id)) return prev;
+          return [
+            ...prev,
+            {
+              id: data.id,
+              ts: data.ts,
+              type: "message",
+              username: data.username,
+              content: data.content,
+              msgType: data.msgType,
+              fileName: data.fileName,
+              isOwn: data.username === username,
+            },
+          ];
+        });
         if (data.username !== username) {
-          // Android native callback
           if (window.Android) {
             window.Android.showNotification(
-              "New Message",
               `${data.username}: ${
                 data.msgType === "text"
                   ? data.content
@@ -150,7 +207,6 @@ function App() {
             );
           }
 
-          // Browser Notification API
           try {
             const body =
               data.msgType === "text" ? data.content : `[${data.msgType}]`;
@@ -179,7 +235,6 @@ function App() {
   const handleLogin = (user) => {
     setUsername(user);
     localStorage.setItem("chat_username", user);
-    // Request permission for browser notifications
     if (window.Notification && Notification.permission !== "granted") {
       try {
         Notification.requestPermission().then((perm) => {
@@ -192,8 +247,9 @@ function App() {
   };
 
   const sendMessage = (content, type = "text", fileName = null) => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(
+    const socket = wsRef.current || ws;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(
         JSON.stringify({
           type: "message",
           username: username,
@@ -202,12 +258,34 @@ function App() {
           fileName: fileName,
         })
       );
-      // Optimistic update? The server broadcasts back, so maybe wait.
-      // But usually we want to see our own message immediately.
-      // The current server implementation broadcasts to everyone including sender?
-      // Let's check server/index.js if possible, but assuming standard behavior.
-      // Actually, the `handleMessage` handles incoming, so if server broadcasts to all, we are good.
     }
+  };
+
+  const handleLogout = () => {
+    // 发送 logout 消息到服务器
+    const socket = wsRef.current || ws;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(
+        JSON.stringify({
+          type: "logout",
+          username: username,
+        })
+      );
+    }
+    // 关闭 WebSocket 连接
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+    }
+    // 清除用户数据
+    setUsername("");
+    setMessages([]);
+    setOnlineCount(0);
+    setWsConnected(false);
+    localStorage.removeItem("chat_username");
   };
 
   return (
@@ -221,6 +299,7 @@ function App() {
           onSendMessage={sendMessage}
           onlineCount={onlineCount}
           onLoadMore={loadHistoryMessages}
+          onLogout={handleLogout}
         />
       )}
     </div>

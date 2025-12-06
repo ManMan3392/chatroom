@@ -1,4 +1,5 @@
 import React, { useState, useRef } from "react";
+import { uploadFile } from "../services/api";
 
 function InputArea({ onSendMessage }) {
   const [text, setText] = useState("");
@@ -27,7 +28,6 @@ function InputArea({ onSendMessage }) {
   };
 
   const startRecording = async () => {
-    // 1. Try Android Native Interface first (works on HTTP in WebView)
     if (window.AndroidNative && window.AndroidNative.startAudioRecording) {
       try {
         const success = window.AndroidNative.startAudioRecording();
@@ -43,14 +43,12 @@ function InputArea({ onSendMessage }) {
       return;
     }
 
-    // 2. Fallback to Web API (works on localhost or HTTPS)
     try {
       if (!window.MediaRecorder) {
         alert("您的浏览器不支持 MediaRecorder，无法录音");
         return;
       }
 
-      // Compatibility check for WebView
       if (!navigator.mediaDevices) {
         navigator.mediaDevices = {};
       }
@@ -59,7 +57,6 @@ function InputArea({ onSendMessage }) {
           const getUserMedia =
             navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
           if (!getUserMedia) {
-            // Check if AndroidNative is missing, which implies the App wasn't updated
             if (!window.AndroidNative) {
               return Promise.reject(
                 new Error(
@@ -107,7 +104,6 @@ function InputArea({ onSendMessage }) {
   };
 
   const stopRecording = () => {
-    // 1. Try Android Native Interface
     if (window.AndroidNative && window.AndroidNative.stopAudioRecording) {
       try {
         const dataUrl = window.AndroidNative.stopAudioRecording();
@@ -125,7 +121,6 @@ function InputArea({ onSendMessage }) {
       return;
     }
 
-    // 2. Fallback to Web API
     try {
       mediaRecorderRef.current?.stop();
     } catch (e) {
@@ -137,25 +132,8 @@ function InputArea({ onSendMessage }) {
     try {
       setUploading(true);
 
-      let port = window.location.port ? `:${window.location.port}` : "";
-      if (window.location.port === "5173") {
-        port = ":3000";
-      }
-      const serverBase = `${window.location.protocol}//${window.location.hostname}${port}`;
-
-      const uploadUrl = `${serverBase}/upload`;
-      const fd = new FormData();
-      fd.append("file", fileToUpload, fileToUpload.name || "upload.bin");
-      const res = await fetch(uploadUrl, {
-        method: "POST",
-        body: fd,
-      });
-      if (!res.ok) throw new Error("upload failed");
-      const json = await res.json();
-
-      // Return the relative URL directly.
-      // The MessageList component will resolve it to an absolute URL based on the viewer's location.
-      return json.url;
+      const result = await uploadFile("/upload", fileToUpload);
+      return result.url;
     } catch (err) {
       console.error("upload error", err);
       alert("文件上传失败，请稍后重试");
@@ -179,7 +157,6 @@ function InputArea({ onSendMessage }) {
     let fileForUpload = file;
 
     try {
-      // upload to server
       const uploadedUrl = await uploadFileToServer(fileForUpload);
       if (!uploadedUrl) {
         input.value = null;
@@ -253,7 +230,6 @@ function InputArea({ onSendMessage }) {
         <div
           className="panel-item"
           onClick={() => {
-            // photo or video selection
             setFileAccept("image/*,video/*");
             if (fileInputRef.current) {
               fileInputRef.current.removeAttribute("capture");
@@ -269,7 +245,6 @@ function InputArea({ onSendMessage }) {
         <div
           className="panel-item"
           onClick={() => {
-            // camera (capture)
             setFileAccept("image/*");
             if (fileInputRef.current) {
               try {
@@ -287,7 +262,6 @@ function InputArea({ onSendMessage }) {
         <div
           className="panel-item"
           onClick={() => {
-            // generic file
             setFileAccept("*/*");
             if (fileInputRef.current) {
               fileInputRef.current.removeAttribute("capture");

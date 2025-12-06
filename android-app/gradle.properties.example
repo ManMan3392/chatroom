@@ -1,0 +1,6 @@
+# 示例：将你的真实密码写到用户级 ~/.gradle/gradle.properties（不要提交到仓库）
+# 例如在 Windows: %USERPROFILE%\\.gradle\\gradle.properties
+# 示例（将下面两项替换为真实密码）：
+RELEASE_STORE_PASSWORD=your_store_password_here
+RELEASE_KEY_PASSWORD=your_key_password_here
+# 注意：不要把此文件重命名为 gradle.properties 并提交到远程仓库

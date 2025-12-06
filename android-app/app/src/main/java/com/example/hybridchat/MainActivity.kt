@@ -90,7 +90,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Use the IP we found earlier
-        myWebView.loadUrl("http://172.22.160.122:5173")
+        myWebView.loadUrl("https://chatroomwebview.onrender.com")
     }
 
     private fun checkPermissions() {
