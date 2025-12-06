@@ -12,6 +12,83 @@ function InputArea({ onSendMessage }) {
   const [fileAccept, setFileAccept] = useState("image/*,video/*,audio/*");
   const [uploading, setUploading] = useState(false);
 
+  // Camera state
+  const [showCamera, setShowCamera] = useState(false);
+  const [cameraStream, setCameraStream] = useState(null);
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+
+  const startCamera = async () => {
+    setShowPlus(false);
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert("您的浏览器不支持相机访问");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+      });
+      setCameraStream(stream);
+      setShowCamera(true);
+    } catch (err) {
+      console.error("Camera error", err);
+      alert("无法访问相机，请检查权限设置");
+    }
+  };
+
+  const stopCameraStream = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((track) => track.stop());
+      setCameraStream(null);
+    }
+  };
+
+  const closeCamera = () => {
+    stopCameraStream();
+    setShowCamera(false);
+  };
+
+  const takePhoto = () => {
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0);
+
+      canvas.toBlob(
+        async (blob) => {
+          if (blob) {
+            const file = new File([blob], `photo_${Date.now()}.jpg`, {
+              type: "image/jpeg",
+            });
+            closeCamera();
+
+            try {
+              const uploadedUrl = await uploadFileToServer(file);
+              if (uploadedUrl && typeof onSendMessage === "function") {
+                onSendMessage(uploadedUrl, "image", file.name);
+              }
+            } catch (e) {
+              console.error(e);
+              alert("发送照片失败");
+            }
+          }
+        },
+        "image/jpeg",
+        0.8
+      );
+    }
+  };
+
+  React.useEffect(() => {
+    if (showCamera && videoRef.current && cameraStream) {
+      videoRef.current.srcObject = cameraStream;
+      videoRef.current.play().catch((e) => console.error("Play error", e));
+    }
+  }, [showCamera, cameraStream]);
+
   const handleSend = () => {
     const trimmed = text.trim();
     if (!trimmed) return;
@@ -188,7 +265,7 @@ function InputArea({ onSendMessage }) {
                 onTouchStart={startRecording}
                 onTouchEnd={stopRecording}
               >
-                {recording ? "Recording..." : "Hold to Talk"}
+                {recording ? "录音中..." : "按住 说话"}
               </button>
             </div>
           ) : (
@@ -198,7 +275,6 @@ function InputArea({ onSendMessage }) {
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Type a message..."
                 rows={1}
               />
 
@@ -222,7 +298,7 @@ function InputArea({ onSendMessage }) {
           onClick={handleSend}
           disabled={text.trim().length === 0}
         >
-          Send
+          发送
         </button>
       </div>
 
@@ -239,24 +315,12 @@ function InputArea({ onSendMessage }) {
           }}
         >
           <div className="panel-icon-box icon-image" />
-          <div className="panel-text">Photo/Video</div>
+          <div className="panel-text">相册</div>
         </div>
 
-        <div
-          className="panel-item"
-          onClick={() => {
-            setFileAccept("image/*");
-            if (fileInputRef.current) {
-              try {
-                fileInputRef.current.setAttribute("capture", "environment");
-              } catch (e) {}
-              fileInputRef.current.click();
-            }
-            setShowPlus(false);
-          }}
-        >
+        <div className="panel-item" onClick={startCamera}>
           <div className="panel-icon-box icon-camera" />
-          <div className="panel-text">Camera</div>
+          <div className="panel-text">拍摄</div>
         </div>
 
         <div
@@ -271,9 +335,28 @@ function InputArea({ onSendMessage }) {
           }}
         >
           <div className="panel-icon-box icon-file" />
-          <div className="panel-text">File</div>
+          <div className="panel-text">文件</div>
         </div>
       </div>
+
+      {showCamera && (
+        <div className="camera-modal">
+          <video
+            ref={videoRef}
+            className="camera-video"
+            playsInline
+            muted
+            autoPlay
+          />
+          <canvas ref={canvasRef} style={{ display: "none" }} />
+          <div className="camera-close" onClick={closeCamera}>
+            ×
+          </div>
+          <div className="camera-controls">
+            <div className="camera-btn" onClick={takePhoto} />
+          </div>
+        </div>
+      )}
     </>
   );
 }

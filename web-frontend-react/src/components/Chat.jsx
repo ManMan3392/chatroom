@@ -22,11 +22,8 @@ function Chat({
   };
 
   useEffect(() => {
-    // 只在收到新消息时滚动到底部
-    // 检查是否有新消息添加到末尾
     if (messages.length > lastMessageCountRef.current) {
       const lastMsg = messages[messages.length - 1];
-      // 如果最新消息是自己发送的或系统消息，滚动到底部
       if (
         lastMsg.type === "system" ||
         (lastMsg.type === "message" && lastMsg.isOwn)
@@ -43,7 +40,7 @@ function Chat({
         <div className="back-icon" onClick={onLogout}>
           ‹
         </div>
-        <div className="chat-title">Chat ({onlineCount})</div>
+        <div className="chat-title">聊天室 ({onlineCount})</div>
         <div className="more-icon">•••</div>
       </header>
 
