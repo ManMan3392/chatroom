@@ -25,6 +25,9 @@ let dbPool = null;
 const app = express();
 const server = http.createServer(app);
 
+// When behind a proxy (Render, Heroku, etc.), trust X-Forwarded-* headers
+app.set("trust proxy", true);
+
 const wss = new WebSocket.Server({ noServer: true });
 
 // Load messages
@@ -170,9 +173,14 @@ const upload = multer({ storage });
 app.post("/upload", upload.single("file"), (req, res) => {
   if (!req.file) return res.status(400).json({ error: "no file" });
   const uploadedUrl = `/uploads/${req.file.filename}`;
-
-  const hostForClient = `${getLocalIPv4()}:${PORT}`;
-  const absoluteUploadedUrl = `http://${hostForClient}${uploadedUrl}`;
+  // Build absolute URL using request host/proto so it works behind proxies (https on Render)
+  const proto = (
+    req.headers["x-forwarded-proto"] ||
+    req.protocol ||
+    "http"
+  ).split(",")[0];
+  const hostHeader = req.get("host") || `${getLocalIPv4()}:${PORT}`;
+  const absoluteUploadedUrl = `${proto}://${hostHeader}${uploadedUrl}`;
 
   const isVideo = req.file.mimetype && req.file.mimetype.startsWith("video");
   if (!isVideo) {
@@ -262,9 +270,14 @@ app.post("/upload", upload.single("file"), (req, res) => {
     if (code === 0) {
       // success
       const finalUrl = `/uploads/${outName}`;
-      // Always use LAN IP
-      const hostForClient = `${getLocalIPv4()}:${PORT}`;
-      const absoluteFinalUrl = `http://${hostForClient}${finalUrl}`;
+      // Use request host/proto to construct public URL (handles reverse proxy and HTTPS)
+      const proto2 = (
+        req.headers["x-forwarded-proto"] ||
+        req.protocol ||
+        "http"
+      ).split(",")[0];
+      const hostHeader2 = req.get("host") || `${getLocalIPv4()}:${PORT}`;
+      const absoluteFinalUrl = `${proto2}://${hostHeader2}${finalUrl}`;
       return res.json({ url: absoluteFinalUrl });
     } else {
       console.warn("ffmpeg exited with code", code);
