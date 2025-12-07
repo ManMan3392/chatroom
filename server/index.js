@@ -179,9 +179,28 @@ const storage = multer.diskStorage({
     cb(null, `${unique}-${safeName}`);
   },
 });
-const upload = multer({ storage });
+const upload = multer({ 
+  storage,
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB limit
+  }
+});
 
-app.post("/upload", upload.single("file"), (req, res) => {
+app.post("/upload", (req, res, next) => {
+  upload.single("file")(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      // A Multer error occurred when uploading.
+      console.error("Multer error:", err);
+      return res.status(400).json({ error: `Upload error: ${err.message}` });
+    } else if (err) {
+      // An unknown error occurred when uploading.
+      console.error("Unknown upload error:", err);
+      return res.status(500).json({ error: "Unknown upload error" });
+    }
+    // Everything went fine.
+    next();
+  });
+}, (req, res) => {
   if (!req.file) return res.status(400).json({ error: "no file" });
   const uploadedUrl = `/uploads/${req.file.filename}`;
   // Build absolute URL using request host/proto so it works behind proxies (https on Render)
@@ -194,7 +213,11 @@ app.post("/upload", upload.single("file"), (req, res) => {
   const absoluteUploadedUrl = `${proto}://${hostHeader}${uploadedUrl}`;
 
   const isVideo = req.file.mimetype && req.file.mimetype.startsWith("video");
-  if (!isVideo) {
+  
+  // Check if transcoding is enabled (default to false to avoid timeouts on slow servers)
+  const enableTranscoding = process.env.ENABLE_TRANSCODING === "true";
+
+  if (!isVideo || !enableTranscoding) {
     return res.json({ url: absoluteUploadedUrl });
   }
 
