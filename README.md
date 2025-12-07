@@ -37,6 +37,31 @@ Android 原生代码通过 `addJavascriptInterface` 向 WebView 注入一个名�
 - **已实现接口**:
   - `AndroidNative.showToast(String message)`: 调用 Android 原生的 Toast 提示框。
   - `AndroidNative.getDeviceInfo()`: 获取 Android 设备型号信息。
+  - `AndroidNative.*` 也被用于在 Web 与原生间传递结果（例如原生录音接口或其他扩展）。
+
+### 3.3 摄像头与拍摄支持（新增）
+
+本项目新增了在 Web 前端内请求相机权限并拍照的实现，以及相应的 Android 原生权限声明与运行时申请。
+
+- 前端（`web-frontend-react`）
+
+  - 在 `src/components/InputArea.jsx` 中新增了相机模态框与两个核心函数：`startCamera`（通过 `navigator.mediaDevices.getUserMedia` 请求相机流并显示预览）和 `takePhoto`（从 `<video>` 捕获帧，生成 `Blob` → `File`，并调用 `uploadFile` 上传后发送消息）。
+  - 在 `src/index.css` 中新增了 `.camera-modal`, `.camera-video`, `.camera-controls` 等样式用于全屏预览与拍摄按钮样式。
+  - 拍摄流程会先在浏览器/WebView 中请求相机权限；用户允许后显示预览，拍照后会把图片上传并通过聊天消息发送。
+
+- Android 原生（`android-app`）
+
+  - 在 `AndroidManifest.xml` 中添加了相机权限声明：
+
+    ```xml
+    <uses-permission android:name="android.permission.CAMERA" />
+    ```
+
+  - 在 `MainActivity.kt` 的 `checkPermissions` 中添加了对 `Manifest.permission.CAMERA` 的运行时检查与申请（基于 `ActivityResultContracts.RequestMultiplePermissions`）。
+  - `WebChromeClient.onPermissionRequest` 在当前实现中会调用 `request.grant(request.resources)`，从而允许 WebView 的媒体权限请求（在安全场景下这样可以让 Web 请求到摄像头/麦克风流）。
+
+注意：Android 权限的变更需要重新编译并安装 APK 才能生效；仅刷新网页无法触发原生权限声明。
+
 - **调用时机**:
   - 前端在 WebSocket 连接成功后，会自动检测是否存在 `window.AndroidNative` 对象。
   - 如果存在，则自动获取设备信息并显示在聊天窗口，同时弹出原生 Toast 提示“连接成功”。
@@ -109,5 +134,33 @@ if (window.AndroidNative) {
 ```bash
 node server/index.js
 ```
+
+### 6.4 在浏览器与移动端测试摄像头与拍照功能
+
+1. web 浏览器 (桌面或手机浏览器)
+
+- 打开前端页面（例如 `http://localhost:5173` 或部署后的地址）。
+- 在聊天页点击 `+` → `拍摄`，浏览器会弹出相机权限请求。允许后会显示预览并可拍照、发送。
+
+2. Android 真机（WebView）
+
+- 需要先重新构建并安装 Android App：
+
+  ```bash
+  # 在 android-app 目录下构建并安装（示例：使用 Gradle/Android Studio）
+  # 使用命令行（可能需要配置 ANDROID_HOME）
+  cd android-app
+  ./gradlew assembleDebug
+  # 然后通过 adb 安装生成的 APK（示例路径）：
+  adb install -r app/build/outputs/apk/debug/app-debug.apk
+  ```
+
+- 第一次运行 App 时系统会弹出权限请求（相机/录音等），请允许。
+- 打开聊天页面，点击 `+` → `拍摄`。WebView 会请求媒体权限并在已授予后显示内置相机预览。拍照后图片会被上传并发送为聊天消息。
+
+3. 常见问题
+
+- 如果在 WebView 中没有弹出权限请求，确认 App 已包含 `CAMERA` 权限且 `MainActivity.kt` 已在运行时申请权限（见 `checkPermissions`）。
+- 真机测试时，确保 URL 使用可访问的地址（局域网 IP 或线上地址），因为设备上的 WebView 需要能够访问前端资源与后端上传接口。
 
 _输出提示：服务器正在监听端口 3000_

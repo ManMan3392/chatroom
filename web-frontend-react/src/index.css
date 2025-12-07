@@ -50,6 +50,22 @@ body {
   color: #181818;
 }
 
+/* Header small button (used for admin actions) */
+.header-btn {
+  background-color: transparent;
+  border: 1px solid #dcdcdc;
+  color: #181818;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+.header-btn:hover {
+  background-color: #f3f3f3;
+}
+
 #messages {
   flex-grow: 1;
   padding: 15px;

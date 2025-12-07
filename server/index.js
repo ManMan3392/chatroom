@@ -17,7 +17,7 @@ const MYSQL_PORT = process.env.MYSQL_PORT || 3306;
 const MYSQL_USER =
   process.env.MYSQL_USER || process.env.DATABASE_USER || "root";
 const MYSQL_PASSWORD =
-  process.env.MYSQL_PASSWORD || process.env.DATABASE_PASSWORD || "";
+  process.env.MYSQL_PASSWORD || process.env.DATABASE_PASSWORD || "uehu62u8AA";
 const MYSQL_DB =
   process.env.MYSQL_DB || process.env.DATABASE_NAME || "chatroom";
 let dbPool = null;
@@ -322,6 +322,94 @@ app.get("/api/messages", async (req, res) => {
     .reverse(); // Return oldest first for the chat log
 
   res.json(history);
+});
+
+// Admin: clear persisted messages and uploaded files
+// Protected by ADMIN_TOKEN env var when set. If ADMIN_TOKEN is not set,
+// requests from localhost are allowed for convenience (development only).
+app.post("/api/admin/clear", async (req, res) => {
+  try {
+    const adminToken = process.env.ADMIN_TOKEN || "";
+    const provided = (req.headers["x-admin-token"] || "") + "";
+
+    const isLocal =
+      req.ip === "::1" ||
+      req.ip === "127.0.0.1" ||
+      req.hostname === "localhost";
+    if (adminToken) {
+      if (!provided || provided !== adminToken) {
+        return res.status(401).json({ error: "unauthorized" });
+      }
+    } else if (!isLocal) {
+      // No token configured and request is not local => deny
+      return res.status(403).json({ error: "admin token not configured" });
+    }
+
+    // Clear DB table if available
+    let dbCleared = false;
+    if (dbPool) {
+      try {
+        await dbPool.execute("DELETE FROM chat_messages");
+        dbCleared = true;
+        console.log("[Server] Cleared chat_messages table via admin API");
+      } catch (e) {
+        console.error(
+          "[Server] Failed to clear DB via admin API:",
+          e.message || e
+        );
+      }
+    }
+
+    // Clear messages.json
+    try {
+      fs.writeFileSync(MESSAGES_FILE, JSON.stringify([], null, 2), "utf8");
+      console.log("[Server] Cleared messages.json via admin API");
+    } catch (e) {
+      console.warn("[Server] Failed to clear messages.json via admin API:", e);
+    }
+
+    // Clear uploads directory (delete files, keep .gitkeep if present)
+    const uploadsDir = path.join(__dirname, "uploads");
+    let deletedFiles = 0;
+    try {
+      if (fs.existsSync(uploadsDir)) {
+        const files = fs.readdirSync(uploadsDir);
+        for (const f of files) {
+          if (f === ".gitkeep") continue;
+          const fp = path.join(uploadsDir, f);
+          try {
+            const stat = fs.lstatSync(fp);
+            if (stat.isFile() || stat.isSymbolicLink()) {
+              fs.unlinkSync(fp);
+              deletedFiles++;
+            } else if (stat.isDirectory()) {
+              // remove directory recursively
+              fs.rmSync(fp, { recursive: true, force: true });
+              deletedFiles++;
+            }
+          } catch (e) {
+            console.warn(
+              "[Server] Failed to remove upload file:",
+              fp,
+              e.message || e
+            );
+          }
+        }
+      }
+      // clear in-memory cache as well
+      messageHistory = [];
+    } catch (e) {
+      console.warn(
+        "[Server] Failed to clear uploads via admin API:",
+        e.message || e
+      );
+    }
+
+    return res.json({ ok: true, dbCleared, deletedFiles });
+  } catch (e) {
+    console.error("[Server] /api/admin/clear error:", e.message || e);
+    return res.status(500).json({ error: "internal_error" });
+  }
 });
 
 server.on("upgrade", (request, socket, head) => {

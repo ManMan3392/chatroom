@@ -74,6 +74,31 @@ export async function post<T = unknown>(
 }
 
 /**
+ * Admin API: clear persisted messages and uploaded files.
+ * If the server requires an admin token, include it as `x-admin-token` header.
+ */
+export async function adminClear(
+  adminToken?: string
+): Promise<Record<string, unknown>> {
+  const apiServer = getApiServer();
+  const fullUrl = apiServer
+    ? `${apiServer}/api/admin/clear`
+    : "/api/admin/clear";
+
+  const headers: Record<string, string> = {};
+  if (adminToken) headers["x-admin-token"] = adminToken;
+
+  const response = await fetch(fullUrl, {
+    method: "POST",
+    headers,
+  });
+  if (!response.ok) {
+    throw new Error(`Admin API Error: ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
  * 上传文件
  * @param url API 路径
  * @param file 文件对象

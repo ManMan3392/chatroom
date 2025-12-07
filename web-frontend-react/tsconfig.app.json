@@ -19,6 +19,8 @@
 
     /* Linting */
     "strict": true,
+    // allow implicit `any` in this project to reduce type errors during gradual migration
+    "noImplicitAny": false,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
