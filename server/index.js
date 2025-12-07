@@ -147,6 +147,17 @@ app.use((req, res, next) => {
 
 app.use(express.static(path.join(__dirname, "../web-frontend-react/dist")));
 
+// Ensure uploads directory exists
+const UPLOADS_DIR = path.join(__dirname, "uploads");
+if (!fs.existsSync(UPLOADS_DIR)) {
+  try {
+    fs.mkdirSync(UPLOADS_DIR);
+    console.log("[Server] Created uploads directory at:", UPLOADS_DIR);
+  } catch (err) {
+    console.error("[Server] Failed to create uploads directory:", err);
+  }
+}
+
 // serve uploaded files
 app.use(
   "/uploads",
