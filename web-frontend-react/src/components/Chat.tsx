@@ -74,7 +74,7 @@ const Chat: React.FC<ChatProps> = ({
               )
                 return;
               const token = window.prompt(
-                "如果服务器配置了管理口令，请在此输入（否则留空）：",
+                "输入admin",
                 ""
               );
               try {
