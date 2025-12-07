@@ -73,10 +73,13 @@ const Chat: React.FC<ChatProps> = ({
                 )
               )
                 return;
+              const token = window.prompt(
+                "如果服务器配置了管理口令，请在此输入（否则留空）：",
+                ""
+              );
               try {
-                const res = await adminClear();
+                const res = await adminClear(token || undefined);
                 console.log("adminClear result:", res);
-                // reload to reflect cleared state
                 window.location.reload();
               } catch (e) {
                 console.error(e);
