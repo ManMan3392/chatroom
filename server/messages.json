@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "type": "message",
+    "username": "刘雅熙",
+    "content": "http://localhost:3000/uploads/1765076659258-jw2clsv-______.jpg",
+    "msgType": "image",
+    "fileName": "灯会.jpg",
+    "id": "1765076659265-jsf1jl7cx",
+    "ts": 1765076659265
+  }
+]
