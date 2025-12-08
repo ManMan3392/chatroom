@@ -1,0 +1,14 @@
+.input-group {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #e5e5e5;
+  padding-bottom: 15px;
+  margin-bottom: 50px;
+}
+
+.input-group label {
+  width: 70px;
+  font-size: 17px;
+  color: #000;
+  font-weight: 400;
+}

@@ -1,0 +1,11 @@
+.audio-message {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  min-width: 60px;
+  user-select: none;
+}
+
+.audio-icon {
+  margin-right: 5px;
+}

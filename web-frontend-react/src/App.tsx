@@ -1,7 +1,7 @@
 import React from "react";
-import Login from "./components/Login";
-import Chat from "./components/Chat";
 import { useChat } from "./hooks/useChat";
+import Login from "./components/login";
+import Chat from "./components/chat";
 
 const App: React.FC = () => {
   const {

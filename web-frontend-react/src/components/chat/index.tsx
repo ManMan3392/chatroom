@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from "react";
-import MessageList from "./MessageList";
-import InputArea from "./InputArea";
-import { adminClear } from "../services/api";
+import { MessageList } from "../MessageList";
+import Inputs from "../input";
+import { adminClear } from "../../services/api";
+import "./style.css";
 
 type Message = {
   type?: string;
@@ -100,7 +101,7 @@ const Chat: React.FC<ChatProps> = ({
         onLoadMore={onLoadMore}
       />
 
-      <InputArea onSendMessage={onSendMessage} />
+      <Inputs onSendMessage={onSendMessage} />
     </div>
   );
 };

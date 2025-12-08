@@ -85,13 +85,18 @@ export function useChat(initialUsername = "") {
               case "login": {
                 setMessages((prev) => {
                   const content = `${data.username}进入了聊天室`;
+                  const now = Date.now();
+                  const windowMs = 60 * 1000; 
                   if (
                     prev.some(
-                      (m) => m.type === "system" && m.content === content
+                      (m) =>
+                        m.type === "system" &&
+                        m.content === content &&
+                        now - (m.ts || 0) < windowMs
                     )
                   )
                     return prev;
-                  return [...prev, { type: "system", content, ts: Date.now() }];
+                  return [...prev, { type: "system", content, ts: now }];
                 });
                 setOnlineCount(data.onlineCount);
                 break;
@@ -99,13 +104,18 @@ export function useChat(initialUsername = "") {
               case "logout": {
                 setMessages((prev) => {
                   const content = `${data.username}离开了聊天室`;
+                  const now = Date.now();
+                  const windowMs = 60 * 1000; 
                   if (
                     prev.some(
-                      (m) => m.type === "system" && m.content === content
+                      (m) =>
+                        m.type === "system" &&
+                        m.content === content &&
+                        now - (m.ts || 0) < windowMs
                     )
                   )
                     return prev;
-                  return [...prev, { type: "system", content, ts: Date.now() }];
+                  return [...prev, { type: "system", content, ts: now }];
                 });
                 setOnlineCount(data.onlineCount);
                 break;
@@ -188,11 +198,11 @@ export function useChat(initialUsername = "") {
         };
 
         socket.onerror = (error) => {
-          console.error("WebSocket Error:", error);
+          console.error("WebSocket出错:", error);
           setWsConnected(false);
         };
       } catch (err) {
-        console.error("Failed to create WebSocket:", err);
+        console.error("创建WebSocket失败:", err);
         setWsConnected(false);
       }
     };
